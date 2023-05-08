@@ -1,0 +1,177 @@
+# VERSION: V1.4
+
+name: Deploy Original
+
+on:
+
+# SET CRON TIME
+# See here for more detail about cron: https://crontab.guru/examples.html
+
+  schedule:
+    - cron: '0 0 * * *' # Default: run at 00:00 UTC everyday
+
+# TRIGGER ON PUSH / PULL
+
+#  push:
+#    branches: [ "main" ]
+#  pull_request:
+#    branches: [ "main" ]
+
+  workflow_dispatch:
+
+permissions: write-all
+
+env:
+
+# YOU CAN EDIT THOSE VARIABLE VALUES DIRECTLY IF YOU WANT INSTEAD OF CREATE SECRETS ~
+
+  COMMAND: ${{ secrets.COMMAND }}
+  RETRY_COMMAND: ${{ secrets.COMMAND }}
+  SPECIFIC_VERSION: ${{ secrets.SPECIFIC_VERSION }}
+  ACCOUNTS: ${{ secrets.ACCOUNTS }}
+  RETRY_THE_BOT: True
+  DELETE_OLD_WORKFLOWS: True
+  DELETE_OLD_WORKFLOWS_SECOND: 1
+  PRINT_OUT_THE_LOG_AFTER_RUNNING_BOT: True
+  COMMIT_LOG_ACCOUNTS_JSON_AFTER_RUNNING_BOT: False
+  COMMIT_ALL_REPO_AFTER_RUNNING_BOT: False
+  DEFAULT_COMMAND: python ms_rewards_farmer.py --virtual-display --dont-check-for-updates --repeat-shopping --superfast --skip-unusual --error --no-images --session
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  Run_Bot:
+
+    runs-on: ubuntu-latest
+#    timeout-minutes: 60 # Limit the time of the bot
+
+    steps:
+
+    - name: Check Public IP
+      uses: haythem/public-ip@master
+
+    - name: checkout
+      uses: actions/checkout@main
+
+# SET REPO STUFF
+
+    - name: Clone the repository into Sub-folder named 'Microsoft-Rewards-bot' and move it back to main directory
+      run: |
+        if [ -z ${{ env.SPECIFIC_VERSION }} ]
+        then
+          git clone --depth 1 https://github.com/farshadz1997/Microsoft-Rewards-bot
+          cd Microsoft-Rewards-bot
+        else
+          git clone https://github.com/farshadz1997/Microsoft-Rewards-bot
+          cd Microsoft-Rewards-bot
+          git reset --hard ${{ env.SPECIFIC_VERSION }}
+        fi
+        rm -rf .git .github
+        mv * ../
+        cd ${{ github.WORKSPACE }}
+        rm -rf Microsoft-Rewards-bot
+
+    - name: Create / Recreate accounts.json
+      if: ${{ env.ACCOUNTS }}
+      run: |
+        wget -O accounts.json ${{ env.ACCOUNTS }} > /dev/null 2>&1
+
+    - name: Set the COMMAND & RETRY_COMMAND
+      id: set_commands
+      run: |
+        # Check if you use CUSTOM COMMAND in secret or not
+        if [ -z ${{ env.COMMAND }} ]
+        then
+          echo "COMMAND=${{ env.DEFAULT_COMMAND }}" >> $GITHUB_ENV
+        fi
+        # Check if you use CUSTOM RETRY COMMAND in secret or not
+        if [ -z ${{ env.RETRY_COMMAND }} ]
+        then
+          echo "RETRY_COMMAND=${{ env.DEFAULT_COMMAND }}" >> $GITHUB_ENV
+        fi
+
+    - name: Check Variables before run
+      run: |
+        # Check if the COMMAND has --session or not to decide to use github action cache
+        if  [[ "${{ env.COMMAND }}" == *"--session"* ]]
+        then
+          echo "HAS_SESSION=True" >> $GITHUB_ENV
+        fi
+        # Add --on-finish exit into COMMAND & RETRY_COMMAND
+        echo "COMMAND=${{ env.COMMAND }} --on-finish exit" >> $GITHUB_ENV
+        echo "RETRY_COMMAND=${{ env.RETRY_COMMAND }} --on-finish exit" >> $GITHUB_ENV
+
+# USE GITHUB CACHE IF COMMAND HAS --SESSION
+# IF YOU FACE ANY ERROR, TRY TO DELETE OLD GITHUB ACTION CACHE
+
+    - name: Save Profiles folder for next run using Github action cache
+      id: Cache-profiles
+      if: ${{ env.HAS_SESSION == 'True' }}
+      uses: actions/cache@main
+      with:
+        path: |
+          **/Profiles
+        key: cache-${{ hashFiles('accounts.json') }}
+  
+# INSTALL REQUIRED STUFF TO RUN BOT
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+# RUN THE BOT
+
+    - name: Run the Bot
+      run: |
+        ${{ env.COMMAND }}
+    
+# RETRY THE BOT
+
+    - name: Retry the Bot
+      if: ${{ failure() && env.RETRY_THE_BOT == 'True' }}
+      run: |
+        ${{ env.RETRY_COMMAND }}
+
+# CHECK LOG_ACCOUNTS.TXT
+
+    - name: Print out the log after run
+      if: ${{ env.PRINT_OUT_THE_LOG_AFTER_RUNNING_BOT == 'True' }}
+      run: cat Logs_accounts.txt
+
+# COMMIT ALL FILES CHANGES TO THE REPO
+
+    - name: Commit all files changes to the repo
+      if: ${{ env.COMMIT_ALL_REPO_AFTER_RUNNING_BOT == 'True' }}
+      uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        skip_dirty_check: true
+        skip_fetch: true
+        skip_checkout: true
+        push_options: -f
+
+# COMMIT LOG_ACCOUNTS.JSON TO YOUR REPO
+
+    - name: Commit log_accounts.json
+      if: ${{ env.COMMIT_LOG_ACCOUNTS_JSON_AFTER_RUNNING_BOT == 'True' }}
+      run: |
+        git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add Logs_accounts.txt
+          git commit -m "Upload Logs_accounts.txt"
+          git push -f
+
+# DELETE WORKFLOWS WHICH ARE OLDER THAN ... SEC
+
+  Delete_old_workflows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old workflow runs
+        if: ${{ env.DELETE_OLD_WORKFLOWS }}
+        uses: MajorScruffy/delete-old-workflow-runs@v0.3.0
+        with:
+          repository: ${{ github.repository }}
+          older-than-seconds: ${{ env.DELETE_OLD_WORKFLOWS_SECOND }}
