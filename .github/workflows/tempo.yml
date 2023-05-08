@@ -8,7 +8,7 @@ on:
 # See here for more detail about cron: https://crontab.guru/examples.html
 
   schedule:
-    - cron: '0 0 * * *' # Default: run at 00:00 UTC everyday
+    - cron: '15 10 * * *' # Default: run at 00:00 UTC everyday
 
 # TRIGGER ON PUSH / PULL
 
@@ -42,7 +42,7 @@ jobs:
   Run_Bot:
 
     runs-on: ubuntu-latest
-#    timeout-minutes: 60 # Limit the time of the bot
+    timeout-minutes: 60 # Limit the time of the bot
 
     steps:
 
